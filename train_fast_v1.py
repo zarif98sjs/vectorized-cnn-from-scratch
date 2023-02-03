@@ -105,6 +105,7 @@ class Conv2D:
         dW_col = d_out @ X_col.T        
         dX_col = W_col.T @ d_out
 
+        print("dX_col shape: ", dX_col.shape)
         dX = self.col2im(dX_col, x.shape)
 
         dW = dW_col.reshape(self.num_filters, self.in_channels, self.kernel_size, self.kernel_size)
@@ -206,20 +207,38 @@ class MaxPool2D:
 
         x_split = x.reshape(N, C, H_out, self.kernel_size, W_out, self.kernel_size)
         out = x_split.max(axis=(3, 5))
-        self.cache = (x, x_split)
+        self.cache = (x, x_split , out)
         return out
 
-    def backward(self, d_out):
-        x, X_col = self.cache
+    def backward_fast(self, d_out):
+        x, X_col, max_idx = self.cache
+        N , C, H_in, W_in = x.shape
 
+        print("X_col shape: ", X_col.shape)
+
+        d_out = d_out.reshape(1, -1)
+        print("d_out shape: ", d_out.shape)
         dX_col = np.zeros_like(X_col)
-        max_idx = np.argmax(X_col, axis=0)
-        dX_col[max_idx, np.arange(max_idx.size)] = d_out.reshape(-1)
-
-        dX = self.col2im(dX_col, x.shape)
+        
+        dX_col[max_idx, np.arange(max_idx.size)] = d_out
+        print("dX_col shape: ", dX_col.shape)
+        dX = self.col2im(dX_col, (N * C, 1, H_in, W_in))
+        dX = dX.reshape(x.shape)
 
         return dX 
-        
+
+    def backward_faster(self, d_out):
+        x, x_split, out = self.cache
+        dx_split = np.zeros_like(x_split)
+        out_newaxis = out[:, :, :, np.newaxis, :, np.newaxis]
+        mask = (x_split == out_newaxis)
+        dout_newaxis = d_out[:, :, :, np.newaxis, :, np.newaxis]
+        dout_broadcast, _ = np.broadcast_arrays(dout_newaxis, dx_split)
+        dx_split[mask] = dout_broadcast[mask]
+        dx_split /= np.sum(mask, axis=(3, 5), keepdims=True)
+        dx = dx_split.reshape(x.shape)
+        return dx
+
 if __name__ == '__main__':
     # conv = Conv2D(3, 8, 3, 1, 1) # in_channels, num_filters, kernel_size, stride, padding
     # x = np.random.randn(10, 3, 32, 32) # N, C, H, W
@@ -235,17 +254,44 @@ if __name__ == '__main__':
     # np.set_printoptions(threshold=np.inf)
     # np.savetxt('out_FAST_v1_fw.txt', out.reshape(-1), fmt='%.6f')
 
-    maxpool = MaxPool2D(2, 2)
+    # maxpool = MaxPool2D(2, 2)
+    # # x = np.random.randn(10, 3, 32, 32) # N, C, H, W
+    # ## generate random input integer
+    # # x = np.random.randint(0, 100, size=(1, 2, 4, 4))
+    # # x = np.random.randn(1, 1, 8, 8) # N, C, H, W
     # x = np.random.randn(10, 3, 32, 32) # N, C, H, W
-    ## generate random input integer
-    # x = np.random.randint(0, 100, size=(1, 2, 4, 4))
-    # x = np.random.randn(1, 1, 8, 8) # N, C, H, W
-    x = np.random.randn(10, 3, 32, 32) # N, C, H, W
-    # print(x)
-    out = maxpool.forward_fast(x)
-    # print(out)
-    print(out.shape)
+    # # print(x)
+    # out = maxpool.forward_fast(x)
+    # # print(out)
+    # print(out.shape)
     
 
+    # np.set_printoptions(threshold=np.inf)
+    # np.savetxt('maxpool_FAST_v1_fwfast_out.txt', out.reshape(-1), fmt='%.6f')
+
+    conv = Conv2D(3, 8, 3, 1, 1) # in_channels, num_filters, kernel_size, stride, padding
+    x = np.random.randn(10, 3, 32, 32) # N, C, H, W
+    out = conv.forward(x)
+    print(out.shape)
+
+    ## test backward
+    dout = np.random.randn(10, 8, 32, 32)
+    dx, dw, db = conv.backward(dout)
+    print(dx.shape, dw.shape, db.shape)
+
+    print("------------------")
+    
+    maxpool = MaxPool2D(2, 2)
+    ## test forward
+    x = np.random.randn(10, 3, 32, 32) # N, C, H, W
+    out = maxpool.forward_faster(x)
+    print(out.shape)
+
+    ## test backward
+    dout = np.random.randn(10, 3, 16, 16)
+    dx = maxpool.backward_faster(dout)
+    print(dx.shape)
+
+
     np.set_printoptions(threshold=np.inf)
-    np.savetxt('maxpool_FAST_v1_fwfast_out.txt', out.reshape(-1), fmt='%.6f')
+    np.savetxt('maxpool_FAST_v1_bwfaster_out.txt', dx.reshape(-1), fmt='%.6f')
