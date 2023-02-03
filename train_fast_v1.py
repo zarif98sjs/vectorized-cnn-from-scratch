@@ -210,6 +210,13 @@ class MaxPool2D:
         self.cache = (x, x_split , out)
         return out
 
+    def backward(self, d_out):
+        if self.method == 'fast':
+            return self.backward_fast(d_out)
+        elif self.method == 'faster':
+            return self.backward_faster(d_out)
+        return None
+
     def backward_fast(self, d_out):
         x, X_col, max_idx = self.cache
         N , C, H_in, W_in = x.shape
