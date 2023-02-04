@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
+from sklearn.metrics import f1_score
 
 ## set seed for reproducibility
 np.random.seed(120)
@@ -566,13 +567,58 @@ def loss(y_pred, y_true):
     loss = -np.sum(y_true * np.log(y_pred + EPS)) / N
     return loss
 
+def accuracy(y_pred, y_true):
+    """
+    y_pred: (N, C) array of predicted class scores
+    y_true: (N, C) array of one-hot encoded true class labels
+    """
+    N = y_pred.shape[0]
+    y_pred = np.argmax(y_pred, axis=1)
+    y_true = np.argmax(y_true, axis=1)
+    acc = np.sum(y_pred == y_true) / N
+    return acc * 100
+
+def macro_f1(y_pred, y_true):
+    """
+    y_pred: (N, C) array of predicted class scores
+    y_true: (N, C) array of one-hot encoded true class labels
+    """
+    N = y_pred.shape[0]
+    y_pred = np.argmax(y_pred, axis=1)
+    y_true = np.argmax(y_true, axis=1)
+    f1 = f1_score(y_true, y_pred, average='macro')
+    return f1 * 100
+
+class History:
+    def __init__(self):
+        self.train_loss = []
+        self.val_loss = []
+        self.val_acc = []
+        self.val_f1 = []
+
+    def add(self, loss, acc, val_loss, val_acc):
+        self.train_loss.append(loss)
+        self.val_loss.append(val_loss)
+        self.val_acc.append(val_acc)
+
+    def plot(self):
+        plt.plot(self.train_loss, label='train_loss')
+        plt.plot(self.val_loss, label='val_loss')
+        plt.plot(self.val_acc, label='val_acc')
+        plt.legend()
+        plt.show()
+
 def train():
     x = np.random.randn(100, 1, 28, 28)
     ## normalize
     # x = (x - np.mean(x)) / np.std(x)
     y = np.random.randint(0, 10, (100, 1))
 
+    val_x = np.random.randn(100, 1, 28, 28)
+    val_y = np.random.randint(0, 10, (100, 1))
+
     model = CNNModel()
+    history = History()
     print("HERE")
     # optimizer = AdamGD(lr=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8, params=model.get_params())
     print("AND HERE")
@@ -588,6 +634,8 @@ def train():
             y_batch = y[i:i+BATCH_SIZE]
 
             y_pred = model.forward(x_batch)
+            y_batch = np.eye(10)[y_batch.reshape(-1)]
+            
             # print("y_pred", y_pred)
             # print(y_pred.shape)
             ## print sum
@@ -595,7 +643,7 @@ def train():
             
             # print("==")
             ## gnererating one hot encoding
-            # y_batch = np.eye(10)[y_batch.reshape(-1)]
+            
             # print("y_batch", y_batch)
             # print(y_batch.shape)
             # print("------------------")
@@ -604,7 +652,20 @@ def train():
             model.set_params(gradients, lr)
 
             # if i % 10 == 0:
-        print('Epoch: {}, Iteration: {}, Loss: {}'.format(epoch, i, loss(y_pred, y_batch)))
+
+        train_loss = loss(y_pred, y_batch)
+
+        ## validation
+        val_y_pred = model.forward(val_x)
+        val_y_true = np.eye(10)[val_y.reshape(-1)]
+        val_loss = loss(val_y_pred, val_y_true)
+        val_acc = accuracy(val_y_pred, val_y_true)
+        val_f1 = macro_f1(val_y_pred, val_y_true)
+
+        history.add(train_loss, val_loss, val_acc, val_f1)
+
+        print("Epoch: {}, Train Loss: {}, Val Loss: {}, Val Acc: {}, Val F1: {}".format(epoch, train_loss, val_loss, val_acc, val_f1))
+
 
         #     BREAK = True
         #     if BREAK:
