@@ -7,6 +7,11 @@ import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
 from sklearn.metrics import f1_score
+import json
+import pandas as pd
+import cv2
+from sklearn.model_selection import train_test_split
+import time
 
 ## set seed for reproducibility
 np.random.seed(120)
@@ -24,10 +29,15 @@ class Conv2D:
         bias = np.zeros(num_filters) * np.sqrt(1. / (self.kernel_size))
         # bias = np.zeros(num_filters)
 
+        self.trainable = True
         self.W = {"val": weights, "grad": np.zeros_like(weights)}
         self.b = {"val": bias, "grad": np.zeros_like(bias)}
+        
 
         self.cache = None
+
+    def __str__(self):
+        return "Conv2D({}, {}, {}, {}, {})".format(self.in_channels, self.num_filters, self.kernel_size, self.stride, self.padding)
 
     def get_matrix_indices(self, x_shape):
         _ , C, H, W = x_shape
@@ -88,7 +98,8 @@ class Conv2D:
         W_col = self.W["val"].reshape(self.num_filters, -1)
         b_col = self.b["val"].reshape(-1, 1)
 
-        out = W_col @ X_col + b_col 
+        ## dot product
+        out = W_col.dot(X_col) + b_col
 
         out = np.array(np.hsplit(out, N)).reshape(N, self.num_filters, H_out, W_out)
 
@@ -120,7 +131,7 @@ class Conv2D:
         self.W["grad"] = dW
         self.b["grad"] = db
 
-        return dX, dW, db
+        return dX
 
 class MaxPool2D:
     def __init__(self, kernel_size, stride=1, padding=0):
@@ -130,6 +141,11 @@ class MaxPool2D:
 
         self.cache = None
         self.method = None
+
+        self.trainable = False
+
+    def __str__(self):
+        return "MaxPool2D({}, {})".format(self.kernel_size, self.stride)
 
     def get_matrix_indices(self, x_shape):
         _ , C, H, W = x_shape
@@ -259,6 +275,10 @@ class MaxPool2D:
 class Flatten:
     def __init__(self):
         self.cache = None
+        self.trainable = False
+
+    def __str__(self):
+        return "Flatten"
 
     def forward(self, x):
         self.cache = x.shape
@@ -274,11 +294,15 @@ class Dense:
         W = None
         b = None
 
+        self.trainable = True
         self.W = {"val": W, "grad": 0}
         self.b = {"val": b, "grad": 0}
 
         self.cache = None
-    
+
+    def __str__(self):
+        return "Dense({})".format(self.out_features)
+        
     def forward(self, x):
         if self.in_features is None:
             self.in_features = x.shape[1]
@@ -300,11 +324,15 @@ class Dense:
         self.W["grad"] = dW
         self.b["grad"] = db
 
-        return dx, dW, db
+        return dx
 
 class ReLU:
     def __init__(self):
         self.cache = None
+        self.trainable = False
+
+    def __str__(self):
+        return "ReLU"
 
     def forward(self, x):
         out = np.maximum(0, x)
@@ -312,15 +340,17 @@ class ReLU:
         return out
 
     def backward(self, d_out):
-        # print("d_out shape: ", d_out.shape)
-        # print(d_out)
         x = self.cache
         d_out[x <= 0] = 0
         return d_out
 
 class Softmax:
     def __init__(self):
+        self.trainable = False
         pass
+    
+    def __str__(self):
+        return "Softmax"
 
     def forward(self, x):
         # print("<< Softmax forward >>")
@@ -334,117 +364,10 @@ class Softmax:
         # print(np.sum(exps, axis=1))
         # return exps / np.sum(exps, axis=1)[:, np.newaxis]
 
-    # def backward(self, dout, y):
-    #     d_softmax = y * (dout - np.sum(dout * y, axis=-1, keepdims=True))
-    #     # d_softmax = self.output * (dout - np.sum(dout * self.output, axis=-1, keepdims=True))
-    #     return d_softmax
+    def backward(self, d_out):
+        return d_out
 
-    def backward(self, y_pred, y_true):
-        return y_pred - y_true
 
-# class LeNet:
-#     def __init__(self, input_shape, num_classes):
-#         self.input_shape = input_shape
-#         self.num_classes = num_classes
-#         self.layers = [
-#             Conv2D(1, 6, 5, 1, 0),
-#             ReLU(),
-#             MaxPool2D(2, 2),
-#             Conv2D(6, 16, 5, 1, 0),
-#             ReLU(),
-#             MaxPool2D(2, 2),
-#             Flatten(),
-#             Dense(120),
-#             ReLU(),
-#             Dense(84),
-#             ReLU(),
-#             Dense(self.num_classes)
-#         ]
-
-#     def forward(self, x):
-#         for layer in self.layers:
-#             x = layer.forward(x)
-#         return x
-
-#     def backward(self, d_out):
-#         for layer in reversed(self.layers):
-#             d_out = layer.backward(d_out)
-#         return d_out
-
-#     def predict(self, x):
-#         x = self.forward(x)
-#         return np.argmax(x, axis=1)
-
-#     def evaluate(self, x, y):
-#         y_pred = self.predict(x)
-#         return np.mean(y_pred == y)
-
-#     def fit(self, x, y, batch_size, epochs, lr, x_val=None, y_val=None):
-#         N = x.shape[0]
-#         iterations_per_epoch = max(N // batch_size, 1)
-#         num_iterations = epochs * iterations_per_epoch
-
-#         for it in range(1, num_iterations + 1):
-#             batch_mask = np.random.choice(N, batch_size)
-#             x_batch = x[batch_mask]
-#             y_batch = y[batch_mask]
-
-#             y_pred = self.forward(x_batch)
-#             loss = self.loss(y_pred, y_batch)
-#             self.backward(self.gradient(x_batch, y_batch))
-
-#             for layer in self.layers:
-#                 if hasattr(layer, 'W'):
-#                     layer.W -= lr * layer.dW
-#                     layer.b -= lr * layer.db
-
-#             if it % iterations_per_epoch == 0:
-#                 train_acc = self.evaluate(x, y)
-#                 val_acc = self.evaluate(x_val, y_val) if x_val is not None else 0
-#                 print('Epoch %d: loss=%.4f, train_acc=%.3f, val_acc=%.3f' % (it // iterations_per_epoch, loss, train_acc, val_acc))
-
-#     def loss(self, y_pred, y):
-#         N = y.shape[0]
-#         y_pred = self.softmax(y_pred)
-#         return -np.sum(y * np.log(y_pred + 1e-7)) / N
-    
-#     def softmax(self, x):
-#         exps = np.exp(x - np.max(x))
-#         return exps / np.sum(exps, axis=1, keepdims=True)
-
-#     def gradient(self, x, y):
-#         y_pred = self.forward(x)
-#         return self.backward(self.loss_gradient(y_pred, y))
-
-#     def loss_gradient(self, y_pred, y):
-#         return (y_pred - y) / y.shape[0]
-
-class Adam:
-    def __init__(self, lr=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
-        self.lr = lr
-        self.beta1 = beta1
-        self.beta2 = beta2
-        self.epsilon = epsilon
-        self.t = 0
-        self.m = None
-        self.v = None
-
-    def update(self, layer):
-        if self.m is None:
-            self.m, self.v = {}, {}
-            for p, w in layer.params.items():
-                self.m[p] = np.zeros_like(w)
-                self.v[p] = np.zeros_like(w)
-
-        self.t += 1
-        for p, w in layer.params.items():
-            dw = layer.grads[p]
-            self.m[p] = self.beta1 * self.m[p] + (1 - self.beta1) * dw
-            self.v[p] = self.beta2 * self.v[p] + (1 - self.beta2) * (dw ** 2)
-
-            m_hat = self.m[p] / (1 - self.beta1 ** self.t)
-            v_hat = self.v[p] / (1 - self.beta2 ** self.t)
-            layer.params[p] -= self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
 
 class AdamGD():
 
@@ -480,82 +403,59 @@ class AdamGD():
 
 class CNNModel():
     def __init__(self):
-        self.conv1 = Conv2D(in_channels=1, num_filters=6, kernel_size=5, stride=1, padding=0)
-        self.relu1 = ReLU()
-        self.pool1 = MaxPool2D(2, 2)
-        self.conv2 = Conv2D(in_channels=6, num_filters=16, kernel_size=5, stride=1, padding=0)
-        self.relu2 = ReLU()
-        self.pool2 = MaxPool2D(2, 2)
-        self.flatten = Flatten()
-        self.fc1 = Dense(120)
-        self.relu3 = ReLU()
-        self.fc2 = Dense(84)
-        self.relu4 = ReLU()
-        self.fc3 = Dense(10)
-        self.softmax = Softmax()
+        self.layers = []
+        self.load_layer_from_json("model.json")
 
-        self.layers = [self.conv1, self.conv2, self.fc1, self.fc2, self.fc3]
+    def load_layer_from_json(self, file_name):
+        with open (file_name, "r") as f:
+            layer_params = json.load(f)
 
+        for layer in layer_params["model"]:
+            if "Conv2D" in layer.keys():
+                self.layers.append(Conv2D(layer["Conv2D"]["in_channels"], layer["Conv2D"]["num_filters"], layer["Conv2D"]["kernel_size"], layer["Conv2D"]["stride"], layer["Conv2D"]["padding"]))
+            elif "ReLU" in layer.keys():
+                self.layers.append(ReLU())
+            elif "MaxPool2D" in layer.keys():
+                self.layers.append(MaxPool2D(layer["MaxPool2D"]["kernel_size"], layer["MaxPool2D"]["stride"]))
+            elif "Flatten" in layer.keys():
+                self.layers.append(Flatten())
+            elif "Dense" in layer.keys():
+                self.layers.append(Dense(layer["Dense"]["out_features"]))
+            elif "Softmax" in layer.keys():
+                self.layers.append(Softmax())
+    
+        for layer in self.layers:
+            print(layer)
+        
     def forward(self, x):
-        x = self.conv1.forward(x)
-        x = self.relu1.forward(x)
-        x = self.pool1.forward(x)
-
-        x = self.conv2.forward(x)
-        x = self.relu2.forward(x)
-        x = self.pool2.forward(x)
-
-        x = self.flatten.forward(x)
-
-        x = self.fc1.forward(x)
-        x = self.relu3.forward(x)
-
-        x = self.fc2.forward(x)
-        x = self.relu4.forward(x)
-
-        x = self.fc3.forward(x)
-        x = self.softmax.forward(x)
+        for layer in self.layers:
+            x = layer.forward(x)
         return x
 
-    def backward(self, y_pred, y):
-        delL = self.softmax.backward(y_pred, y)
-        # print("delL : ", delL)
-        delL, dW5, db5 = self.fc3.backward(delL)
-        delL = self.relu4.backward(delL)
-
-        delL, dW4, db4 = self.fc2.backward(delL)
-        delL = self.relu3.backward(delL)
-
-        delL, dW3, db3 = self.fc1.backward(delL)
-        delL = self.flatten.backward(delL)
-
-        delL = self.pool2.backward(delL)
-        delL = self.relu2.backward(delL)
-        delL, dW2 , db2 = self.conv2.backward(delL)
-
-        delL = self.pool1.backward(delL)
-        delL = self.relu1.backward(delL)
-        delL , dW1, db1 = self.conv1.backward(delL)
-
-        gradients =  {  'dW1': dW1, 'db1': db1,
-                        'dW2': dW2, 'db2': db2,
-                        'dW3': dW3, 'db3': db3,
-                        'dW4': dW4, 'db4': db4,
-                        'dW5': dW5, 'db5': db5  }
-
+    def backward(self, delL):
+        for layer in reversed(self.layers):
+            delL = layer.backward(delL)
+        
+        gradients = {}
+        for i, layer in enumerate(self.layers):
+            if layer.trainable:
+                gradients['dW' + str(i+1)] = layer.W['grad']
+                gradients['db' + str(i+1)] = layer.b['grad']
         return gradients
 
     def get_params(self):
         params = {}
         for i, layer in enumerate(self.layers):
-            params['W' + str(i+1)] = layer.W['val']
-            params['b' + str(i+1)] = layer.b['val']
+            if layer.trainable:
+                params['W' + str(i+1)] = layer.W['val']
+                params['b' + str(i+1)] = layer.b['val']
         return params
 
     def set_params(self, params, lr):
         for i, layer in enumerate(self.layers):
-            layer.W['val'] -= lr * params['dW'+ str(i+1)]
-            layer.b['val'] -= lr * params['db'+ str(i+1)]
+            if layer.trainable:
+                layer.W['val'] -= lr * params['dW'+ str(i+1)]
+                layer.b['val'] -= lr * params['db'+ str(i+1)]
 
 def loss(y_pred, y_true):
     """
@@ -583,7 +483,6 @@ def macro_f1(y_pred, y_true):
     y_pred: (N, C) array of predicted class scores
     y_true: (N, C) array of one-hot encoded true class labels
     """
-    N = y_pred.shape[0]
     y_pred = np.argmax(y_pred, axis=1)
     y_true = np.argmax(y_true, axis=1)
     f1 = f1_score(y_true, y_pred, average='macro')
@@ -608,14 +507,20 @@ class History:
         plt.legend()
         plt.show()
 
-def train():
-    x = np.random.randn(100, 1, 28, 28)
-    ## normalize
-    # x = (x - np.mean(x)) / np.std(x)
-    y = np.random.randint(0, 10, (100, 1))
+def train(x, y, val_x, val_y):
+    # x = np.random.randn(100, 1, 28, 28)
+    # ## normalize
+    # # x = (x - np.mean(x)) / np.std(x)
+    # y = np.random.randint(0, 10, (100, 1))
 
-    val_x = np.random.randn(100, 1, 28, 28)
-    val_y = np.random.randint(0, 10, (100, 1))
+    # val_x = np.random.randn(100, 1, 28, 28)
+    # val_y = np.random.randint(0, 10, (100, 1))
+
+    print("----------------")
+    print(x.shape)
+    print(y.shape)
+    print(val_x.shape)
+    print(val_y.shape)
 
     model = CNNModel()
     history = History()
@@ -634,36 +539,48 @@ def train():
             y_batch = y[i:i+BATCH_SIZE]
 
             y_pred = model.forward(x_batch)
-            y_batch = np.eye(10)[y_batch.reshape(-1)]
-            
+            y_batch = np.eye(10)[y_batch.reshape(-1)] ## one-hot encoding
+
             # print("y_pred", y_pred)
             # print(y_pred.shape)
             ## print sum
             # print("SUM : ",np.sum(y_pred, axis=1))
             
             # print("==")
-            ## gnererating one hot encoding
             
             # print("y_batch", y_batch)
             # print(y_batch.shape)
             # print("------------------")
-            gradients = model.backward(y_pred, y_batch)
+
+            err = y_pred - y_batch
+
+            gradients = model.backward(err)
             # model.set_params(optimizer.update_params(gradients))
             model.set_params(gradients, lr)
 
-            # if i % 10 == 0:
+        """
+        Loss
+        """
 
         train_loss = loss(y_pred, y_batch)
 
-        ## validation
+        """
+        Validation
+        """
         val_y_pred = model.forward(val_x)
         val_y_true = np.eye(10)[val_y.reshape(-1)]
         val_loss = loss(val_y_pred, val_y_true)
         val_acc = accuracy(val_y_pred, val_y_true)
         val_f1 = macro_f1(val_y_pred, val_y_true)
 
+        """
+        Save history
+        """
         history.add(train_loss, val_loss, val_acc, val_f1)
 
+        """
+        Log
+        """
         print("Epoch: {}, Train Loss: {}, Val Loss: {}, Val Acc: {}, Val F1: {}".format(epoch, train_loss, val_loss, val_acc, val_f1))
 
 
@@ -672,12 +589,106 @@ def train():
         #         break
         # if BREAK:
         #     break
+
+class DataLoader:
+    def __init__(self, label_paths):
+        self.label_paths = label_paths
+
+    def load(self):
+        df = pd.DataFrame()
+        for label_path in self.label_paths:
+            df = df.append(pd.read_csv(label_path))
+        print(df.head())
+        print(df.tail())
+        """
+            filename           original filename  scanid  digit database name original contributing team database name
+        0  a00000.png   Scan_58_digit_5_num_8.png      58      5                  BHDDB      Buet_Broncos    training-a
+        1  a00001.png   Scan_73_digit_3_num_5.png      73      3                  BHDDB      Buet_Broncos    training-a
+        2  a00002.png   Scan_18_digit_1_num_3.png      18      1                  BHDDB      Buet_Broncos    training-a
+        3  a00003.png  Scan_166_digit_7_num_3.png     166      7                  BHDDB      Buet_Broncos    training-a
+        4  a00004.png  Scan_108_digit_0_num_1.png     108      0                  BHDDB      Buet_Broncos    training-a
+        """
+
+        COUNT = 1000
+
+        labels = df['digit'].values
+        print(labels[:10])
+
+        filenames = df['database name'].values + '/' + df['filename'].values
+        print(filenames[:10])
+
+        """
+        SAMPLE COUNT = 1000
+        """
+        labels = labels[:COUNT]
+        filenames = filenames[:COUNT]
+
+        images = []
+        for filename in filenames:
+            image = cv2.imread('dataset/NumtaDB_with_aug/' + filename, cv2.IMREAD_COLOR)
+            images.append(image)
+
+        ## resize
+        images = [cv2.resize(image, (28, 28)) for image in images]
+        
+        images = np.array(images)
+        print(images.shape)
+
+        ## adjust dimensions : (N, H, W, C) -> (N, C, H, W)
+        images = np.transpose(images, (0, 3, 1, 2))
+
+        ## normalize
+        images = images / 255.0
+
+        ## convert (N, C, H, W) -> (N, 1, H, W)
+        # images = images[:, 0:1, :, :]
+        # print(images.shape)
+
+        ## change background color
+        images = 1 - images
+
+
+        """
+        stratified split
+        """
+
+        X_train, X_test, y_train, y_test = train_test_split(images, labels, test_size=0.2, random_state=42, stratify=labels)
+        y_train = y_train.reshape(-1, 1)
+        y_test = y_test.reshape(-1, 1)
+        print(X_train.shape, X_test.shape, y_train.shape, y_test.shape)
+
+        """
+        print sample distribution
+        """
+
+        print("Train distribution")
+        print(np.unique(y_train, return_counts=True))
+        print("Test distribution")
+        print(np.unique(y_test, return_counts=True))
+
+        return X_train, X_test, y_train, y_test
+
+
+
+
 if __name__ == '__main__':
 
     """
     Test LeNet with dummy data
     """
 
-    train()
+    # train()
+
+    # model = CNNModel()
+
+    # calculate time to load data in seconds
+    start = time.time()
+    dataloader = DataLoader(label_paths=['dataset/NumtaDB_with_aug/training-a.csv', 'dataset/NumtaDB_with_aug/training-b.csv', 'dataset/NumtaDB_with_aug/training-c.csv'])
+    x, val_x, y, val_y = dataloader.load()
+    end = time.time()
+    print("Time taken to load data: ", end - start)
+
+    train(x, y, val_x, val_y)
+
 
     
