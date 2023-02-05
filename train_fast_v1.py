@@ -12,6 +12,7 @@ import pandas as pd
 import cv2
 from sklearn.model_selection import train_test_split
 import time
+import pickle
 
 ## set seed for reproducibility
 np.random.seed(120)
@@ -96,10 +97,11 @@ class Conv2D:
 
         X_col = self.im2col(x)
         W_col = self.W["val"].reshape(self.num_filters, -1)
+        # print("W_col : ", W_col)
         b_col = self.b["val"].reshape(-1, 1)
 
         ## dot product
-        out = W_col.dot(X_col) + b_col
+        out = W_col @ X_col + b_col
 
         out = np.array(np.hsplit(out, N)).reshape(N, self.num_filters, H_out, W_out)
 
@@ -457,6 +459,36 @@ class CNNModel():
                 layer.W['val'] -= lr * params['dW'+ str(i+1)]
                 layer.b['val'] -= lr * params['db'+ str(i+1)]
 
+    def save_model_weights_pickle(self, file_name):
+        params = self.get_params()
+        # print(params)
+        with open(file_name, "wb") as f:
+            pickle.dump(params, f)
+
+
+    def load_model_weights_pickle(self, file_name):
+
+        with open(file_name, "rb") as f:
+            params_new = pickle.load(f)
+
+        # for i, layer in enumerate(self.layers):
+        #     if layer.trainable:
+        #         print("layer w", layer.W['val'])
+        #         print("layer b", layer.b['val'])
+        #         break
+
+        for i, layer in enumerate(self.layers):
+            if layer.trainable:
+                layer.W['val'] = params_new['W' + str(i+1)]
+                layer.b['val'] = params_new['b' + str(i+1)]
+
+        # for i, layer in enumerate(self.layers):
+        #     if layer.trainable:
+        #         print(">layer w", layer.W['val'])
+        #         print(">layer b", layer.b['val'])
+        #         break
+
+
 def loss(y_pred, y_true):
     """
     y_pred: (N, C) array of predicted class scores
@@ -495,10 +527,11 @@ class History:
         self.val_acc = []
         self.val_f1 = []
 
-    def add(self, loss, acc, val_loss, val_acc):
+    def add(self, loss,val_loss, val_acc, val_f1):
         self.train_loss.append(loss)
         self.val_loss.append(val_loss)
         self.val_acc.append(val_acc)
+        self.val_f1.append(val_f1)
 
     def plot(self):
         plt.plot(self.train_loss, label='train_loss')
@@ -528,8 +561,8 @@ def train(x, y, val_x, val_y):
     # optimizer = AdamGD(lr=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8, params=model.get_params())
     print("AND HERE")
     BATCH_SIZE = 32
-    EPOCHS = 1000
-    lr = 0.00001
+    EPOCHS = 30
+    lr = 0.001
 
     BREAK = False
 
@@ -557,6 +590,12 @@ def train(x, y, val_x, val_y):
             gradients = model.backward(err)
             # model.set_params(optimizer.update_params(gradients))
             model.set_params(gradients, lr)
+
+        ## save model weights with epoch number
+        model.save_model_weights_pickle("model_weights_epoch_" + str(epoch) + ".pkl")
+        
+        ## load model weights with epoch number
+        model.load_model_weights_pickle("model_weights_epoch_" + str(epoch) + ".pkl")
 
         """
         Loss
@@ -669,7 +708,14 @@ class DataLoader:
         return X_train, X_test, y_train, y_test
 
 
+def test(X_test, y_test):
+    model = CNNModel()
+    model.load_model_weights_pickle("model_weights_kaggle.pkl")
 
+    y_pred = model.forward(X_test)
+    y_true = np.eye(10)[y_test.reshape(-1)]
+    print("Test Accuracy: ", accuracy(y_pred, y_true))
+    print("Test F1 Score: ", macro_f1(y_pred, y_true))
 
 if __name__ == '__main__':
 
@@ -688,7 +734,9 @@ if __name__ == '__main__':
     end = time.time()
     print("Time taken to load data: ", end - start)
 
-    train(x, y, val_x, val_y)
+    # train(x, y, val_x, val_y)
+
+    test(val_x, val_y)
 
 
     
