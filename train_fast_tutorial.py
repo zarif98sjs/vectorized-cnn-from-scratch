@@ -92,37 +92,31 @@ class Conv2D:
     def forward(self, x):
 
         N, _ , H_in, W_in = x.shape
-        """
-        calculate the output dimensions using the formula:
-        out = (in + 2*padding - kernel_size) // stride + 1
-        """
         H_out = (H_in + 2*self.padding - self.kernel_size) // self.stride + 1
         W_out = (W_in + 2*self.padding - self.kernel_size) // self.stride + 1
 
-        """
-        convert image to columns for purpose of vectorization
-        """
         X_col = self.im2col(x)
         W_col = self.W["val"].reshape(self.num_filters, -1)
         b_col = self.b["val"].reshape(-1, 1)
 
-        """
-        convolution can now be performed as matrix multiplication
-        """
+        print("X_col.shape: ", X_col.shape)
+        print("W_col.shape: ", W_col.shape)
+        print("b_col.shape: ", b_col.shape)
+
+        ## dot product
         out = W_col @ X_col + b_col
 
-        """
-        the convolution output for each sample is stacked side by side
-        we reshape it and make it stack vertically/ top to bottom
-        """
-        out = np.array(np.hsplit(out, N))
-        out = out.reshape(N, self.num_filters, H_out, W_out)
+        print("out.shape: ", out.shape)
+
+        out = np.array(np.hsplit(out, N)).reshape(N, self.num_filters, H_out, W_out)
+
+        print("out.shape: ", out.shape)
 
         self.cache = (x, X_col, W_col)
+
         return out
 
-    def backward(self, d_out):
-        print("d_out : ", d_out.shape)
+    def backward(self, d_out):  
         x, X_col, W_col = self.cache
         N = x.shape[0]
 
@@ -245,19 +239,18 @@ class MaxPool2D:
 
         H_out = H_in // self.kernel_size
         W_out = W_in // self.kernel_size
-
+        print("x_shape :",x.shape)
         x_split = x.reshape(N, C, H_out, self.kernel_size, W_out, self.kernel_size)
+        print("x_split shape: ",x_split.shape)
+        print("x_split[0]: ",x_split[0])
+        temp_x_split = x_split.max(axis=5)
+        print("temp_x_split shape: ",temp_x_split.shape)
+        print("temp_x_split[0]: ",temp_x_split[0])
         out = x_split.max(axis=(3, 5))
         self.cache = (x, x_split , out)
         return out
 
     def backward(self, d_out):
-        """
-        Parameters:
-            - dout: Previous layer with the error.
-            Returns:
-            - dX: Conv layer updated with error.
-        """
         if self.method == 'fast':
             return self.backward_fast(d_out)
         elif self.method == 'faster':
@@ -266,9 +259,30 @@ class MaxPool2D:
             return self.backward_slow(d_out)
         return None
 
+    def backward_fast(self, d_out):
+        x, X_col, max_idx = self.cache
+        N , C, H_in, W_in = x.shape
+
+        # print("X_col shape: ", X_col.shape)
+
+        d_out = d_out.reshape(1, -1)
+        # print("d_out shape: ", d_out.shape)
+        dX_col = np.zeros_like(X_col)
+        
+        dX_col[max_idx, np.arange(max_idx.size)] = d_out
+        # print("dX_col shape: ", dX_col.shape)
+        dX = self.col2im(dX_col, (N * C, 1, H_in, W_in))
+        dX = dX.reshape(x.shape)
+
+        return dX
+
     def backward_slow(self, dout):
         """
             Distributes error through max pooling layer.
+            Parameters:
+            - dout: Previous layer with the error.
+            Returns:
+            - dX: Conv layer updated with error.
 
             We need to distribute the error to the correct input element.
             First, we find the index responsible for the maximum value in the input.
@@ -298,68 +312,64 @@ class MaxPool2D:
 
         return dX 
 
-
-    def backward_fast(self, d_out):
-        x, X_col, max_idx = self.cache
-        N , C, H_in, W_in = x.shape
-        # print("X_col shape: ", X_col.shape)
-
-        d_out = d_out.reshape(1, -1)
-        # print("d_out shape: ", d_out.shape)
-
-        """
-        dx_col is the derivative of X_col with respect to the loss.
-
-        We then set the values in dX_col to d_out based on the indices in max_idx, 
-        which correspond to the max pooling indices that were calculated in the forward pass
-        """
-        dX_col = np.zeros_like(X_col)
-        dX_col[max_idx, np.arange(max_idx.size)] = d_out
-        # print("dX_col shape: ", dX_col.shape)
-
-        """
-        col2im here performs the reverse of im2col
-        After that we reshape the output to the original shape of x
-        """
-        dX = self.col2im(dX_col, (N * C, 1, H_in, W_in))
-        dX = dX.reshape(x.shape)
-        return dX 
-
-
     def backward_faster(self, d_out):
-        """
-        Reference: 
-        https://stackoverflow.com/questions/61954727/max-pooling-backpropagation-using-numpy
-        https://gitlab.cs.washington.edu/liangw6/assignment2-for-stanford231n
-
-        "This implementation has a crucial (but often ignored) mistake: 
-        in case of multiple equal maxima, it backpropagates to all of them which can easily result in 
-        vanishing / exploding gradients / weights. You can propagate to (any) one of the maximas, not all of them. 
-        tensorflow chooses the first maxima."
-
-        """
-        """
-        In this backward pass, the gradient with respect to the input x is computed, given the gradient with respect to the output d_out.
-        For this efficient implementation, in the forward pass, the input x is divided into non-overlapping regions and the maximum value in each region is selected as the output.
-        And in the backward pass, the gradient is propagated back to the input x in a way that only the elements of x corresponding to the maximum value in each region receive the gradient.
-        """
+        print("dout_shape [maxpool] : ",d_out.shape)
+        print("dout [maxpool] : ",d_out[0])
         x, x_split, out = self.cache
+        print("x_split shape [maxpool] : ",x_split.shape)
+        print("x_split [maxpool] : ",x_split[0])
+        print("out shape [maxpool] : ",out.shape)
         dx_split = np.zeros_like(x_split)
-        """
-        The purpose of mask is to identify which elements of x correspond to the maximum value in each region, and then distribute the gradient to these elements.
-        """
-        mask = (x_split == np.expand_dims(np.expand_dims(out, 3), 5))
-        dout_broadcast, _ = np.broadcast_arrays(np.expand_dims(np.expand_dims(d_out, 3), 5), dx_split)
-        """
-        This mask is then used to update the values of dx_split. 
-        The values of dx_split are updated by taking d_out of the mask (after boradcasting), and then normalizing by the sum of the mask along the 3rd and 5th dimensions.
-        The 3rd and 5th dimensions are from this shape: (N, C, H_out, F, W_out, F)
-        """
+        out_newaxis = out[:, :, :, np.newaxis, :, np.newaxis]
+        print("out_newaxis shape [maxpool] : ",out_newaxis.shape)
+        print("out_newaxis [maxpool] : ",out_newaxis[0])
+        mask = (x_split == out_newaxis)
+        print("mask shape : ",mask.shape)
+        print("mask ",mask[0])
+        dout_newaxis = d_out[:, :, :, np.newaxis, :, np.newaxis]
+        dout_broadcast, _ = np.broadcast_arrays(dout_newaxis, dx_split)
+        print("dout_broadcast shape [maxpool] : ",dout_broadcast.shape)
+        print("dout_broadcast [maxpool] : ",dout_broadcast[0])
         dx_split[mask] = dout_broadcast[mask]
+        print("dx_split shape [maxpool] : ",dx_split.shape)
+        print("dx_split [maxpool] : ",dx_split[0])
         dx_split /= np.sum(mask, axis=(3, 5), keepdims=True)
         dx = dx_split.reshape(x.shape)
         return dx
 
+    # def backward_faster(self, d_out):
+    #     """
+    #     Reference: 
+    #     https://stackoverflow.com/questions/61954727/max-pooling-backpropagation-using-numpy
+    #     https://gitlab.cs.washington.edu/liangw6/assignment2-for-stanford231n
+
+    #     "This implementation has a crucial (but often ignored) mistake: 
+    #     in case of multiple equal maxima, it backpropagates to all of them which can easily result in 
+    #     vanishing / exploding gradients / weights. You can propagate to (any) one of the maximas, not all of them. 
+    #     tensorflow chooses the first maxima."
+
+    #     """
+    #     """
+    #     In this backward pass, the gradient with respect to the input x is computed, given the gradient with respect to the output d_out.
+    #     For this efficient implementation, in the forward pass, the input x is divided into non-overlapping regions and the maximum value in each region is selected as the output.
+    #     And in the backward pass, the gradient is propagated back to the input x in a way that only the elements of x corresponding to the maximum value in each region receive the gradient.
+    #     """
+    #     x, x_split, out = self.cache
+    #     dx_split = np.zeros_like(x_split)
+    #     """
+    #     The purpose of mask is to identify which elements of x correspond to the maximum value in each region, and then distribute the gradient to these elements.
+    #     """
+    #     mask = (x_split == np.expand_dims(np.expand_dims(out, 3), 5))
+    #     dout_broadcast, _ = np.broadcast_arrays(np.expand_dims(np.expand_dims(d_out, 3), 5), dx_split)
+    #     """
+    #     This mask is then used to update the values of dx_split. 
+    #     The values of dx_split are updated by taking d_out of the mask (after boradcasting), and then normalizing by the sum of the mask along the 3rd and 5th dimensions.
+    #     The 3rd and 5th dimensions are from this shape: (N, C, H_out, F, W_out, F)
+    #     """
+    #     dx_split[mask] = dout_broadcast[mask]
+    #     dx_split /= np.sum(mask, axis=(3, 5), keepdims=True)
+    #     dx = dx_split.reshape(x.shape)
+    #     return dx
 
 class Flatten:
     def __init__(self):
@@ -404,11 +414,18 @@ class Dense:
     def backward(self, d_out):
         x = self.cache
         N = x.shape[0]
+
+        print("d_out shape: ", d_out.shape)
+        print("x shape: ", x.shape)
         
         dW = d_out.T.dot(x) / N
+        print("dW shape: ", dW.shape)
         db = np.sum(d_out, axis=0, keepdims=True) / N
+        print("db shape: ", db.shape)
 
+        print("W shape: ",self.W["val"].shape)
         dx = d_out.dot(self.W["val"])
+        print("dx shape: ", dx.shape)
 
         self.W["grad"] = dW
         self.b["grad"] = db
@@ -430,6 +447,8 @@ class ReLU:
 
     def backward(self, d_out):
         x = self.cache
+        print("x shape: ", x.shape)
+        print("x[0] : ", x[0])
         d_out[x <= 0] = 0
         return d_out
 
@@ -745,7 +764,7 @@ class DataLoader:
         4  a00004.png  Scan_108_digit_0_num_1.png     108      0                  BHDDB      Buet_Broncos    training-a
         """
 
-        COUNT = 100
+        COUNT = 1000
         if isTestSet:
             COUNT = 50000
 
@@ -822,29 +841,96 @@ def test(X_test, y_test):
 
 if __name__ == '__main__':
 
-    start = time.time()
-    dataloader = DataLoader(label_paths=['dataset/NumtaDB_with_aug/training-a.csv', 'dataset/NumtaDB_with_aug/training-b.csv', 'dataset/NumtaDB_with_aug/training-c.csv'])
-    x, val_x, y, val_y = dataloader.load()
-    end = time.time()
-    print("Time taken to load data: ", end - start)
+    NUM_CHANNELS = 1
+    NUM_FILTERS = 1
+    IMG_SIZE = 5
+    NUM_CLASS = 10
+    NUM_SAMPLES = 100
 
-    train(x, y, val_x, val_y)
+    ## dummy data
+    X_train = np.random.randint(0, NUM_CLASS, (NUM_SAMPLES, NUM_CHANNELS, IMG_SIZE, IMG_SIZE))
+    y_train = np.random.randint(0, NUM_CLASS, (NUM_SAMPLES, NUM_CHANNELS))
 
-    test(val_x, val_y)
+    print(X_train[0])
+    print(X_train[0].shape)
+    print(y_train[0])
 
-    # """
-    # TEST SET: training-d.csv
-    # """
+    """
+    MAXPOOL F/W FASTER TEST
+    """
 
-    # start = time.time()
-    # dataloader = DataLoader(label_paths=['dataset/NumtaDB_with_aug/training-d.csv'])
-    # test_x , test_y = dataloader.load(isTestSet=True)
-    # end = time.time()
+    # maxpool = MaxPool2D(kernel_size=2, stride=2)
+    # x = maxpool.forward(X_train)
+    # print(x.shape)
+    # print(x[0])
 
-    # print("Time taken to load data: ", end - start)
-    # print(test_x.shape, test_y.shape)
+    """
+    FULL F/W B/W TEST
+    """
 
-    # test(test_x, test_y)
+    conv2d = Conv2D(in_channels=NUM_CHANNELS, num_filters=NUM_FILTERS, kernel_size=2)
+    relu = ReLU()
+    maxpool = MaxPool2D(kernel_size=2, stride=2)
+    flatten = Flatten()
+    dense = Dense(out_features=10)
+    softmax = Softmax()
 
+    x = conv2d.forward(X_train)
+    print(x.shape)
+    print(x[0])
+
+    x = relu.forward(x)
+    print(x.shape)
+    print(x[0])
+
+    x = maxpool.forward(x)
+    print(x.shape)
+    print(x[0])
+
+    x = flatten.forward(x)
+    print(x.shape)
+    print(x[0])
+
+    x = dense.forward(x)
+    print(x.shape)
+    print(x[0])
+
+    x = softmax.forward(x)
+    print(x.shape)
+    print(x[0])
+
+    y_pred = x
+    y_true = np.eye(10)[y_train.reshape(-1)]
+
+    loss = loss(y_pred, y_true)
+    print(loss)
+
+    err = y_pred - y_true
+    print(err.shape)
+    print(err[0])
+
+    err = softmax.backward(err)
+    print(err.shape)
+    print(err[0])
+
+    err = dense.backward(err)
+    print(err.shape)
+    print(err[0])
+
+    err = flatten.backward(err)
+    print(err.shape)
+    print(err[0])
+
+    err = maxpool.backward(err)
+    print(err.shape)
+    print(err[0])
+
+    # err = relu.backward(err)
+    # print(err.shape)
+    # print(err[0])
+
+    # err = conv2d.backward(err)
+    # print(err.shape)
+    # print(err[0])
 
     

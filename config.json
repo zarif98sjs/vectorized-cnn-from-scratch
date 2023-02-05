@@ -1,0 +1,1 @@
+{"MODEL_NAME": "Conv2D(3, 6, 5, 1, 0)\nReLU\nMaxPool2D(2, 2)\nConv2D(6, 16, 5, 1, 0)\nReLU\nMaxPool2D(2, 2)\nFlatten\nDense(120)\nReLU\nDense(84)\nReLU\nDense(10)\nSoftmax\n", "BATCH_SIZE": 32, "EPOCHS": 1, "lr": 0.001}
