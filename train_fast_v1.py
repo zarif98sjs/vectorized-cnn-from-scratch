@@ -306,7 +306,7 @@ class Dense:
         return "Dense({})".format(self.out_features)
         
     def forward(self, x):
-        if self.in_features is None:
+        if self.W["val"] is None:
             self.in_features = x.shape[1]
             self.W["val"] = np.random.randn(self.out_features, self.in_features) * np.sqrt(1.0 / self.in_features)
             self.b["val"] = np.random.randn(1, self.out_features) * np.sqrt(1.0 / self.in_features)
