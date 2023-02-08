@@ -18,61 +18,118 @@ import pickle
 np.random.seed(120)
 
 class Conv2D:
+    """
+    A class to implement a 2D Convolution layer in a neural network.
+    """
     def __init__(self, in_channels, num_filters, kernel_size, stride=1, padding=0):
+        """
+        Initialize the layer with the given parameters.
+
+        Parameters:
+        - in_channels (int): The number of input channels.
+        - num_filters (int): The number of filters in the layer. This is also the number of output channels.
+        - kernel_size (int): The size of the kernel.
+        - stride (int, optional): The stride of the convolution. Defaults to 1.
+        - padding (int, optional): The amount of padding to add. Defaults to 0.
+        """
         self.in_channels = in_channels
         self.num_filters = num_filters
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = padding
 
+        # Initialize the weights with random values, scaled by a factor
         weights = np.random.randn(num_filters, in_channels, kernel_size, kernel_size) * np.sqrt(1. / (self.kernel_size))
-        # weights = np.random.randn(num_filters, in_channels, kernel_size, kernel_size)
         bias = np.zeros(num_filters) * np.sqrt(1. / (self.kernel_size))
-        # bias = np.zeros(num_filters)
 
+        # Set the trainable attribute to True, indicating that the weights and biases can be updated during training
         self.trainable = True
+
+        """
+        Store the values and gradients of the weights and biases in dictionaries
+        The values are stored in the "val" key, and the gradients are stored in the "grad" key
+        These weights and biases can later be saved to use a pretrained model
+        """
+
         self.W = {"val": weights, "grad": np.zeros_like(weights)}
         self.b = {"val": bias, "grad": np.zeros_like(bias)}
         
-
+        # Initialize the cache to None, which will be used to store intermediate activations during the forward pass
         self.cache = None
 
     def __str__(self):
         return "Conv2D({}, {}, {}, {}, {})".format(self.in_channels, self.num_filters, self.kernel_size, self.stride, self.padding)
 
+    def get_index_channels(self, C):
+        channel_idx = np.repeat(np.arange(C), self.kernel_size * self.kernel_size)
+        channel_idx = channel_idx.reshape(-1, 1)
+        return channel_idx
+
+    def get_index_rows(self, C, H_out, W_out):
+        row_idx_0 = np.repeat(np.arange(self.kernel_size), self.kernel_size)
+        row_idx_0 = np.tile(row_idx_0, C)
+        all_levels = self.stride * np.repeat(np.arange(H_out), W_out)
+        row_indices = row_idx_0.reshape(-1, 1) + all_levels.reshape(1, -1)
+        return row_indices
+
+    def get_index_columns(self, C, H_out, W_out):
+        col_idx_0 = np.tile(np.arange(self.kernel_size), self.kernel_size * C)
+        all_slides = self.stride * np.tile(np.arange(W_out), H_out)
+        col_indices = col_idx_0.reshape(-1, 1) + all_slides.reshape(1, -1)
+        return col_indices
+
     def get_matrix_indices(self, x_shape):
+        """
+        Get the matrix indices needed to convert the input matrix into consecutive columns.
+        Reference: https://hackmd.io/@machine-learning/blog-post-cnnumpy-fast
+        
+        Parameters:
+        x_shape (tuple): The shape of the input matrix
+        
+        Returns:
+        row_indices (numpy array): The indices for the row of the matrix
+        col_indices (numpy array): The indices for the column of the matrix
+        channel_idx (numpy array): The indices for the depth of the matrix
+        """
         _ , C, H, W = x_shape
         H_out = (H + 2*self.padding - self.kernel_size) // self.stride + 1
         W_out = (W + 2*self.padding - self.kernel_size) // self.stride + 1
 
-        """
-        creating the indexes needed to convert the matrix into consecutive columns
-        """
+        row_indices = self.get_index_rows(C, H_out, W_out)
+        col_indices = self.get_index_columns(C, H_out, W_out)
+        channel_idx = self.get_index_channels(C)
 
-        ## index i
-        i0 = np.repeat(np.arange(self.kernel_size), self.kernel_size)
-        i0 = np.tile(i0, C)
-        all_levels = self.stride * np.repeat(np.arange(H_out), W_out)
-        i = i0.reshape(-1, 1) + all_levels.reshape(1, -1)
-
-        ## index j
-        j0 = np.tile(np.arange(self.kernel_size), self.kernel_size * C)
-        all_slides = self.stride * np.tile(np.arange(W_out), H_out)
-        j = j0.reshape(-1, 1) + all_slides.reshape(1, -1)
-
-        ## index d
-        d = np.repeat(np.arange(C), self.kernel_size * self.kernel_size).reshape(-1, 1)
-
-        return i, j, d
+        return row_indices, col_indices, channel_idx
 
     def im2col(self, x):
+        """
+        Convert the input image into columns.
+        Reference: https://hackmd.io/@machine-learning/blog-post-cnnumpy-fast
+        
+        Parameters:
+        x (numpy array): The input image
+        
+        Returns:
+        cols (numpy array): The input image converted into columns
+        """
         img = np.pad(x, [(0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)], 'constant')
-        i, j, d = self.get_matrix_indices(x.shape)
-        cols = img[:, d, i, j]
+        i, j, channel_idx = self.get_matrix_indices(x.shape)
+        cols = img[:, channel_idx, i, j]
         cols = np.concatenate(cols, axis=-1)
         return cols
 
     def col2im(self, dx_col, x_shape):
+        """
+        Convert the columns back into the input image.
+        Reference: https://hackmd.io/@machine-learning/blog-post-cnnumpy-fast
+        
+        Parameters:
+        dx_col (numpy array): The gradient of the input image in columns format
+        x_shape (tuple): The shape of the input image
+        
+        Returns:
+        X_pad (numpy array): The gradient of the input image in its original shape
+        """
         N , C, H, W = x_shape
         H_pad = H + 2*self.padding
         W_pad = W + 2*self.padding
@@ -88,10 +145,30 @@ class Conv2D:
         if self.padding == 0:
             return X_pad
         return X_pad[:, :, self.padding:-self.padding, self.padding:-self.padding]
+
+    def forward(self, x, mode="im2col"):
+        """
+        Perform the forward pass of the convolutional layer using either the im2col method or the einsum method.
+
+        Parameters:
+        x (numpy.ndarray): Input data with shape (batch_size, channels, height, width)
+        mode (str, optional): The mode to use for the forward pass. Can be either "im2col" or "einsum". Defaults to "im2col".
+
+        Returns:
+        numpy.ndarray: Output data with shape (batch_size, num_filters, output_height, output_width)
+        """
+        if mode == "im2col":
+            return self.forward_im2col(x)
+        elif mode == "einsum":
+            return self.forward_einsum(x)
         
-    def forward(self, x):
+    def forward_im2col(self, x):
 
         N, _ , H_in, W_in = x.shape
+
+        assert (H_in + 2*self.padding - self.kernel_size) % self.stride == 0, "Invalid input dimensions"
+        assert (W_in + 2*self.padding - self.kernel_size) % self.stride == 0, "Invalid input dimensions"
+
         """
         calculate the output dimensions using the formula:
         out = (in + 2*padding - kernel_size) // stride + 1
@@ -121,26 +198,67 @@ class Conv2D:
         self.cache = (x, X_col, W_col)
         return out
 
-    def backward(self, d_out):
-        print("d_out : ", d_out.shape)
-        x, X_col, W_col = self.cache
-        N = x.shape[0]
+    def forward_einsum(self, x):
+        N, C, H_in, W_in = x.shape
+        H_out = (H_in + 2*self.padding - self.kernel_size) // self.stride + 1
+        W_out = (W_in + 2*self.padding - self.kernel_size) // self.stride + 1
 
-        # bias gradient: sum over all the dimensions except the channel dimension
-        db = np.sum(d_out, axis=(0, 2, 3))
+        out = None
 
-        # reshape dout
-        # dout: (N, C, H, W) -> (N * C, H * W)
-        d_out = d_out.reshape(d_out.shape[0] * d_out.shape[1], d_out.shape[2] * d_out.shape[3])
+        """
+        pad over the image dimension only
+        reference: https://sparrow.dev/numpy-pad/
+        """
+        # print("Before padding: ", x.shape)
+        x_pad = np.pad(x, [(0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)], 'constant')
+        # print("After padding: ", x_pad.shape)
+        ## np.lib.stride_tricks.as_strided
+        x_stride = np.lib.stride_tricks.as_strided(x_pad, shape=(N, C, H_out, W_out, self.kernel_size, self.kernel_size), strides=(x_pad.strides[0], x_pad.strides[1], x_pad.strides[2]*self.stride, x_pad.strides[3]*self.stride, x_pad.strides[2], x_pad.strides[3]))
+
+        ## einsum
+        # out2 = np.einsum('nchwkm,nkhw->nchw', x_stride, self.weights) + self.bias
+        out = np.einsum('bihwkl,oikl->bohw', x_stride, self.W["val"]) 
+        out = out + self.b["val"][None, :, None, None]
+        self.cache = (x, x_stride)
+        return out
+
+    def dout_vectorized(self, dout, N):
+        d_out_N, d_out_C, d_out_H, d_out_W = d_out.shape
+        d_out = d_out.reshape(d_out_N * d_out_C, d_out_H * d_out_W)
         d_out = np.array(np.vsplit(d_out, N))
         d_out = np.concatenate(d_out, axis=1)
 
+    def backward(self, d_out):
+        """
+        The backward pass for a 2D convolutional layer.
+
+        Parameters:
+        d_out (np.array): Gradients with respect to the output of the convolutional layer, of shape (N, C_out, H_out, W_out)
+        
+        Returns:
+        dX (np.array): Gradients with respect to the input to the convolutional layer, of shape (N, C_in, H_in, W_in)
+        
+        Updates:
+        self.W["grad"] (np.array): Gradients with respect to the weights of the convolutional layer, of shape (C_out, C_in, kernel_size, kernel_size)
+        self.b["grad"] (np.array): Gradients with respect to the bias of the convolutional layer, of shape (C_out,)
+        """
+        # print("d_out : ", d_out.shape)
+        x, X_col, W_col = self.cache
+        N = x.shape[0]
+        
+        # bias gradient: sum over all the dimensions except the channel dimension
+        db = np.sum(d_out, axis=(0, 2, 3))
+
+        # reshape dout for vectorization
+        d_out = self.dout_vectorized(d_out, N)
+        
+        # calculate the gradient of the weights and the input
         dW_col = d_out @ X_col.T        
         dX_col = W_col.T @ d_out
-
         # print("dX_col shape: ", dX_col.shape)
-        dX = self.col2im(dX_col, x.shape)
 
+        # convert the columns back to the original image
+        dX = self.col2im(dX_col, x.shape)
         dW = dW_col.reshape(self.num_filters, self.in_channels, self.kernel_size, self.kernel_size)
 
         self.W["grad"] = dW
@@ -162,39 +280,76 @@ class MaxPool2D:
     def __str__(self):
         return "MaxPool2D({}, {})".format(self.kernel_size, self.stride)
 
+    def get_index_channels(self, C):
+        channel_idx = np.repeat(np.arange(C), self.kernel_size * self.kernel_size)
+        channel_idx = channel_idx.reshape(-1, 1)
+        return channel_idx
+
+    def get_index_rows(self, C, H_out, W_out):
+        row_idx_0 = np.repeat(np.arange(self.kernel_size), self.kernel_size)
+        row_idx_0 = np.tile(row_idx_0, C)
+        all_levels = self.stride * np.repeat(np.arange(H_out), W_out)
+        row_indices = row_idx_0.reshape(-1, 1) + all_levels.reshape(1, -1)
+        return row_indices
+
+    def get_index_columns(self, C, H_out, W_out):
+        col_idx_0 = np.tile(np.arange(self.kernel_size), self.kernel_size * C)
+        all_slides = self.stride * np.tile(np.arange(W_out), H_out)
+        col_indices = col_idx_0.reshape(-1, 1) + all_slides.reshape(1, -1)
+        return col_indices
+
     def get_matrix_indices(self, x_shape):
+        """
+        Get the matrix indices needed to convert the input matrix into consecutive columns.
+        Reference: https://hackmd.io/@machine-learning/blog-post-cnnumpy-fast
+        
+        Parameters:
+        x_shape (tuple): The shape of the input matrix
+        
+        Returns:
+        row_indices (numpy array): The indices for the row of the matrix
+        col_indices (numpy array): The indices for the column of the matrix
+        channel_idx (numpy array): The indices for the depth of the matrix
+        """
         _ , C, H, W = x_shape
         H_out = (H + 2*self.padding - self.kernel_size) // self.stride + 1
         W_out = (W + 2*self.padding - self.kernel_size) // self.stride + 1
 
-        """
-        creating the indexes needed to convert the matrix into consecutive columns
-        """
+        row_indices = self.get_index_rows(C, H_out, W_out)
+        col_indices = self.get_index_columns(C, H_out, W_out)
+        channel_idx = self.get_index_channels(C)
 
-        ## index i
-        i0 = np.repeat(np.arange(self.kernel_size), self.kernel_size)
-        i0 = np.tile(i0, C)
-        all_levels = self.stride * np.repeat(np.arange(H_out), W_out)
-        i = i0.reshape(-1, 1) + all_levels.reshape(1, -1)
-
-        ## index j
-        j0 = np.tile(np.arange(self.kernel_size), self.kernel_size * C)
-        all_slides = self.stride * np.tile(np.arange(W_out), H_out)
-        j = j0.reshape(-1, 1) + all_slides.reshape(1, -1)
-
-        ## index d
-        d = np.repeat(np.arange(C), self.kernel_size * self.kernel_size).reshape(-1, 1)
-
-        return i, j, d
+        return row_indices, col_indices, channel_idx
 
     def im2col(self, x):
+        """
+        Convert the input image into columns.
+        Reference: https://hackmd.io/@machine-learning/blog-post-cnnumpy-fast
+        
+        Parameters:
+        x (numpy array): The input image
+        
+        Returns:
+        cols (numpy array): The input image converted into columns
+        """
         img = np.pad(x, [(0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)], 'constant')
-        i, j, d = self.get_matrix_indices(x.shape)
-        cols = img[:, d, i, j]
+        i, j, channel_idx = self.get_matrix_indices(x.shape)
+        cols = img[:, channel_idx, i, j]
         cols = np.concatenate(cols, axis=-1)
         return cols
 
     def col2im(self, dx_col, x_shape):
+        """
+        Convert the columns back into the input image.
+        Reference: https://hackmd.io/@machine-learning/blog-post-cnnumpy-fast
+        
+        Parameters:
+        dx_col (numpy array): The gradient of the input image in columns format
+        x_shape (tuple): The shape of the input image
+        
+        Returns:
+        X_pad (numpy array): The gradient of the input image in its original shape
+        """
         N , C, H, W = x_shape
         H_pad = H + 2*self.padding
         W_pad = W + 2*self.padding
@@ -223,7 +378,18 @@ class MaxPool2D:
 
 
     def forward_fast(self, x):
+        """
+        Forward pass of the max pooling layer using a faster implementation.
+        Parameters:
+        x (numpy.ndarray): Input data of shape (N, C, H_in, W_in).
+        Returns:
+        numpy.ndarray: Output data of shape (N, C, H_out, W_out).
+        """
         N, C , H_in, W_in = x.shape
+
+        assert (H_in + 2*self.padding - self.kernel_size) % self.stride == 0, 'Invalid input dimensions'
+        assert (W_in + 2*self.padding - self.kernel_size) % self.stride == 0, 'Invalid input dimensions'
+
         H_out = (H_in + 2*self.padding - self.kernel_size) // self.stride + 1
         W_out = (W_in + 2*self.padding - self.kernel_size) // self.stride + 1
 
@@ -237,6 +403,10 @@ class MaxPool2D:
         return out
 
     def forward_faster(self, x):
+        """
+        The windows are non-overlapping, so we can use the max function to get the max value in each window.
+        This makes it super fast.
+        """
         N, C, H_in, W_in = x.shape
         
         assert self.kernel_size == self.stride, "kernel size must be equal to stride for fast implementation"
@@ -651,7 +821,7 @@ def train(x, y, val_x, val_y):
     config = {
         'MODEL_DESCRIPTION': str(model),
         'BATCH_SIZE': 32,
-        'EPOCHS': 1,
+        'EPOCHS': 10,
         'lr': 0.001,
     }
 
@@ -745,7 +915,7 @@ class DataLoader:
         4  a00004.png  Scan_108_digit_0_num_1.png     108      0                  BHDDB      Buet_Broncos    training-a
         """
 
-        COUNT = 100
+        COUNT = 1000
         if isTestSet:
             COUNT = 50000
 

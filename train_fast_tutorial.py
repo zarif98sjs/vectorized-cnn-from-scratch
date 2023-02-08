@@ -925,12 +925,13 @@ if __name__ == '__main__':
     print(err.shape)
     print(err[0])
 
-    # err = relu.backward(err)
-    # print(err.shape)
-    # print(err[0])
+    err = relu.backward(err)
+    print("relu backward")
+    print(err.shape)
+    print(err[0])
 
-    # err = conv2d.backward(err)
-    # print(err.shape)
-    # print(err[0])
+    err = conv2d.backward(err)
+    print(err.shape)
+    print(err[0])
 
     
