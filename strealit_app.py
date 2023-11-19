@@ -1,7 +1,6 @@
-import streamlit as st
-import pandas as pd
 import numpy as np
 from PIL import Image
+import streamlit as st
 from train_fast_v1 import *
 
 st.title("বাংলা নামতা using CNN from scratch")
