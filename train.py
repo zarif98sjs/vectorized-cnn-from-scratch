@@ -20,6 +20,8 @@ class Conv2D:
         self.weights = np.random.randn(num_filters, in_channels, kernel_size, kernel_size) * 0.01
         self.bias = np.zeros(num_filters)
 
+        self.cache = None
+
     def get_matrix_indices(self, x_shape):
         _ , C, H, W = x_shape
         H_out = (H + 2*self.padding - self.kernel_size) // self.stride + 1
@@ -52,6 +54,10 @@ class Conv2D:
         cols = np.concatenate(cols, axis=-1)
         return cols
 
+    def col2im(self, X):
+        _ , C, H, W = X.shape
+        
+
     def forward(self, x, part1=True, part2=True):
 
         N, C, H_in, W_in = x.shape
@@ -59,6 +65,7 @@ class Conv2D:
         W_out = (W_in + 2*self.padding - self.kernel_size) // self.stride + 1
 
         out1 = None
+
         ## without using einsum
         if part1:  
             X_col = self.im2col(x)
@@ -70,6 +77,7 @@ class Conv2D:
             out1 = np.array(np.hsplit(out1, N)).reshape(N, self.num_filters, H_out, W_out)
 
         out2 = None
+
         ## using einsum
         if part2:
             """

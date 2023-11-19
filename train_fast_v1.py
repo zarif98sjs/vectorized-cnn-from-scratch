@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, confusion_matrix, ConfusionMatrixDisplay
 import json
 import pandas as pd
 import cv2
@@ -915,7 +915,7 @@ class DataLoader:
         4  a00004.png  Scan_108_digit_0_num_1.png     108      0                  BHDDB      Buet_Broncos    training-a
         """
 
-        COUNT = 1000
+        COUNT = 44000
         if isTestSet:
             COUNT = 50000
 
@@ -983,12 +983,22 @@ class DataLoader:
 
 def test(X_test, y_test):
     model = CNNModel()
-    model.load_model_weights_pickle("model_weights_kaggle.pkl")
+    model.load_model_weights_pickle('models/lr005/model_weights_latest.pkl')
 
     y_pred = model.forward(X_test)
     y_true = np.eye(10)[y_test.reshape(-1)]
     print("Test Accuracy: ", accuracy(y_pred, y_true))
     print("Test F1 Score: ", macro_f1(y_pred, y_true))
+
+    print("Confusion Matrix")
+    y_pred = np.argmax(y_pred, axis=1)
+    y_true = np.argmax(y_true, axis=1)
+    cm = confusion_matrix(y_true, y_pred)
+    print(cm)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=range(10))
+    disp.plot()
+    # plt.show()
+    plt.savefig("confusion_matrix_lr005.png")
 
 if __name__ == '__main__':
 
@@ -998,7 +1008,7 @@ if __name__ == '__main__':
     end = time.time()
     print("Time taken to load data: ", end - start)
 
-    train(x, y, val_x, val_y)
+    # train(x, y, val_x, val_y)
 
     test(val_x, val_y)
 

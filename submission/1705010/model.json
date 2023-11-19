@@ -1,0 +1,67 @@
+{
+    "model": [
+        {
+            "Conv2D" : {
+                "in_channels" : 3,
+                "num_filters" : 6,
+                "kernel_size" : 5,
+                "stride" : 1,
+                "padding" : 0
+            }
+        },
+        {
+            "ReLU" : {}
+        },
+        {
+            "MaxPool2D" : {
+                "kernel_size" : 2,
+                "stride" : 2
+            }
+        },
+        {
+            "Conv2D" : {
+                "in_channels" : 6,
+                "num_filters" : 16,
+                "kernel_size" : 5,
+                "stride" : 1,
+                "padding" : 0
+            }
+        },
+        {
+            "ReLU" : {}
+        },
+        {
+            "MaxPool2D" : {
+                "kernel_size" : 2,
+                "stride" : 2
+            }
+        },
+        {
+            "Flatten" : {}
+        },
+        {
+            "Dense" : {
+                "out_features" : 120
+            }
+        },
+        {
+            "ReLU" : {}
+        },
+        {
+            "Dense" : {
+                "out_features" : 84
+            }
+        },
+        {
+            "ReLU" : {}
+        },
+        {
+            "Dense" : {
+                "out_features" : 10
+            }
+        },
+        {
+            "Softmax" : {}
+        }
+    ]
+}
