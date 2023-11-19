@@ -1,11 +1,11 @@
 import json
 import pickle
-from relu import ReLU
-from dense import Dense
-from conv2D import Conv2D
-from flatten import Flatten
-from softmax import Softmax
-from maxpool2D import MaxPool2D
+from src.relu import ReLU
+from src.dense import Dense
+from src.conv2D import Conv2D
+from src.flatten import Flatten
+from src.softmax import Softmax
+from src.maxpool2D import MaxPool2D
 
 class CNNModel():
     def __init__(self):
