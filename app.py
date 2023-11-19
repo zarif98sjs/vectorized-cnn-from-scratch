@@ -1,7 +1,8 @@
+import cv2
 import numpy as np
 from PIL import Image
 import streamlit as st
-from train_fast_v1 import *
+from src.model import CNNModel
 
 st.title("বাংলা নামতা using CNN from scratch")
 st.markdown("Please upload an image file of a **Bengali Digit** ... [***preferably written in black on white background for optimal performance***]")
