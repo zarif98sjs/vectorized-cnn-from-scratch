@@ -10,7 +10,7 @@ from src.maxpool2D import MaxPool2D
 class CNNModel():
     def __init__(self):
         self.layers = []
-        self.load_layer_from_json("model.json")
+        self.load_layer_from_json("src/model.json")
 
     def __str__(self):
         ret = ""
