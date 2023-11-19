@@ -10,7 +10,7 @@ st.markdown("Please upload an image file of a **Bengali Digit** ... [***preferab
 
 def predict_from_image(img):
     model = CNNModel()
-    model.load_model_weights_pickle("model_weights_kaggle.pkl")
+    model.load_model_weights_pickle("src/model_weights_kaggle.pkl")
 
     # img = cv2.imread(url, cv2.IMREAD_COLOR)
     # print(img.shape)
